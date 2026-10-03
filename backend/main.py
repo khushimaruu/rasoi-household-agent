@@ -109,7 +109,10 @@ def resolve(run_id: str, req: ResolveReq):
 async def voice(household_id: str = Form(HID), language: str = Form("hi-IN"),
                 text_fallback: str = Form(None), audio: UploadFile = File(None)):
     data = await audio.read() if audio else None
-    stt = await gnani.transcribe(data, audio.filename if audio else "", language, text_fallback)
+    try:
+        stt = await gnani.transcribe(data, audio.filename if audio else "", language, text_fallback)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e)) from e
     known = [r["ingredient"] for r in q("SELECT ingredient FROM catalog")]
     interp = llm.interpret_voice(stt["transcript"], known)
     rule_id = th.add_voice_rule(household_id, interp)

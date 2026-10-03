@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { api } from "./api";
+import VoiceNote from "./Voicenote";
 
 const SCENARIOS = [
   ["happy", "Happy path"],
@@ -20,7 +21,6 @@ export default function App() {
   const [run, setRun] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [voice, setVoice] = useState(null);
 
   const refreshHousehold = useCallback(() => api.household().then(setHh).catch((e) => setErr(e.message)), []);
   useEffect(() => {
@@ -71,7 +71,7 @@ export default function App() {
       </header>
 
       <main className="mx-auto grid max-w-[1400px] gap-6 p-6 lg:grid-cols-[280px_minmax(0,1fr)_minmax(0,1.1fr)]">
-        <Household hh={hh} voice={voice} setVoice={setVoice} refresh={refreshHousehold} />
+        <Household hh={hh} refresh={refreshHousehold} />
 
         <section className="space-y-5">
           <div className="rounded-xl bg-ink p-6 text-paper">
@@ -128,55 +128,8 @@ const Card = ({ children, border = "border-line" }) => (
   <div className={`rounded-xl border ${border} bg-paper p-5`}>{children}</div>
 );
 
-function Household({ hh, voice, setVoice, refresh }) {
-  const [text, setText] = useState("Kal paneer mat banana");
-  const [file, setFile] = useState(null);
-  const [sending, setSending] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [voiceError, setVoiceError] = useState("");
-  const recorderRef = useRef(null);
+function Household({ hh, refresh }) {
   const h = hh?.household;
-
-  const toggleRecording = async () => {
-    setVoiceError("");
-    if (recorderRef.current) {
-      recorderRef.current.stop();
-      return;
-    }
-    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-      setVoiceError("Audio recording is not supported in this browser.");
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      const chunks = [];
-      recorderRef.current = recorder;
-      recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
-      recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-        const extension = blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "m4a" : "webm";
-        setFile(new File([blob], `rasoi-recording.${extension}`, { type: blob.type }));
-        stream.getTracks().forEach((track) => track.stop());
-        recorderRef.current = null;
-        setRecording(false);
-      };
-      recorder.start();
-      setRecording(true);
-    } catch (e) {
-      setVoiceError(e.name === "NotAllowedError"
-        ? "Microphone access was denied. Allow microphone access and try again."
-        : `Could not start recording: ${e.message}`);
-    }
-  };
-
-  const send = async () => {
-    setVoiceError("");
-    setSending(true);
-    try { setVoice(await api.voice(text, file)); refresh(); }
-    catch (e) { setVoiceError(e.message); }
-    finally { setSending(false); }
-  };
   if (!h) return <aside className="text-steel">Loading household…</aside>;
   return (
     <aside className="space-y-5 text-sm">
@@ -200,25 +153,7 @@ function Household({ hh, voice, setVoice, refresh }) {
       </Card>
       <Card>
         <p className="font-semibold">Voice note</p>
-        <button type="button" onClick={toggleRecording} disabled={sending}
-          className={`mt-2 rounded-lg px-3 py-1.5 text-paper disabled:opacity-50 ${recording ? "bg-mirchi" : "bg-ink"}`}>
-          {recording ? "Stop recording" : "Record with microphone"}
-        </button>
-        <p className="mt-1 text-xs text-steel" aria-live="polite">
-          {recording ? "Recording… stop when your note is ready." : file ? `Ready to send: ${file.name}` : "Or choose an audio file."}
-        </p>
-        <input type="file" accept="audio/*" onChange={(e) => setFile(e.target.files[0] || null)} className="mt-2 w-full text-xs" />
-        <input value={text} onChange={(e) => setText(e.target.value)} className="mt-2 w-full rounded border border-line px-2 py-1.5" aria-label="Text to use if no audio" />
-        <button onClick={send} disabled={sending || recording} className="mt-2 rounded-lg bg-ink px-3 py-1.5 text-paper disabled:opacity-50">{sending ? "Sending…" : "Send to Gnani"}</button>
-        {voiceError && <p className="mt-2 text-mirchi" role="alert">{voiceError}</p>}
-        {voice && (
-          <div className="mt-3 space-y-2">
-            <p><span className="font-semibold">Understood:</span> {voice.interpretation.summary}</p>
-            <details><summary className="cursor-pointer text-steel">Raw Gnani response</summary>
-              <pre className="mt-1 max-h-48 overflow-auto rounded bg-tile p-2 text-xs">{JSON.stringify(voice.raw_gnani_response, null, 2)}</pre>
-            </details>
-          </div>
-        )}
+        <div className="mt-3"><VoiceNote onResult={() => refresh()} /></div>
       </Card>
     </aside>
   );

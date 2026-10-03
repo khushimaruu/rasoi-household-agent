@@ -12,9 +12,10 @@ export const api = {
   run: () => post("/agent/run"),
   resume: (id) => post(`/agent/resume/${id}`),
   resolve: (id, action, params) => post(`/agent/${id}/resolve`, { action, params }),
-  voice: (text, file) => {
+  voice: (text, file, language = "hi-IN") => {
     const f = new FormData();
     f.append("household_id", "demo-household");
+    f.append("language", language);
     if (text) f.append("text_fallback", text);
     if (file) f.append("audio", file);
     return fetch("/api/voice", { method: "POST", body: f }).then(j);

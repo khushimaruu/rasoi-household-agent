@@ -30,8 +30,19 @@ async def transcribe(audio: bytes | None, filename: str, language: str, text_fal
     key = os.environ["GNANI_API_KEY"]
     headers = {os.getenv("GNANI_AUTH_HEADER", "Authorization"): f"{scheme} {key}".strip()}
     async with httpx.AsyncClient(timeout=60) as c:
-        r = await c.post(os.environ["GNANI_STT_URL"], headers=headers,
-                         files={"file": (filename or "audio.wav", audio)}, data={"language": language})
-        r.raise_for_status()
-        raw = r.json()
+        try:
+            r = await c.post(os.environ["GNANI_STT_URL"], headers=headers,
+                             files={"audio_file": (filename or "audio.wav", audio)},
+                             data={"language_code": language})
+            r.raise_for_status()
+            raw = r.json()
+        except httpx.HTTPStatusError as exc:
+            response_body = exc.response.text[:500]
+            raise RuntimeError(f"Gnani returned HTTP {exc.response.status_code}: {response_body}") from exc
+        except httpx.TimeoutException as exc:
+            raise RuntimeError("Gnani speech recognition timed out.") from exc
+        except httpx.RequestError as exc:
+            raise RuntimeError(f"Could not connect to Gnani: {exc}") from exc
+        except ValueError as exc:
+            raise RuntimeError("Gnani returned an invalid JSON response.") from exc
     return {"raw": raw, "transcript": _extract(raw)}
