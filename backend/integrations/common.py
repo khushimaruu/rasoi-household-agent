@@ -1,8 +1,10 @@
 import os, uuid
 from db.database import one, q, J
 
-
-def use_mocks(*required_env):
+def use_mocks(*required_env, rail=None):
+    flag = os.getenv(f"MOCK_{rail}", "").lower() if rail else ""
+    if flag in ("true", "false"):          # per-rail setting wins
+        return flag == "true"
     if os.getenv("USE_MOCKS", "true").lower() == "true":
         return True
     return not all(os.getenv(k) for k in required_env)

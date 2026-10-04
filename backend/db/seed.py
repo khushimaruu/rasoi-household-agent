@@ -4,7 +4,7 @@ from pathlib import Path
 from db.database import transaction, J
 
 HID = "demo-household"
-TABLES = ["voice_inputs", "mock_external", "world_events", "agent_events", "agent_runs", "meal_history",
+TABLES = ["messages", "voice_inputs", "mock_external", "world_events", "agent_events", "agent_runs", "meal_history",
           "orders", "meals", "catalog", "inventory", "household_rules", "members", "households"]
 
 # name: (unit, price_per_unit, in_stock)
@@ -13,7 +13,7 @@ CATALOG = {
     "capsicum": ("piece", 36, True), "atta": ("g", 0.05, True), "rice": ("g", 0.08, True),
     "toor dal": ("g", 0.15, True), "ghee": ("g", 0.6, True), "chickpeas": ("g", 0.12, True),
     "mixed veg": ("g", 0.06, True), "soya chunks": ("g", 0.5, True), "eggs": ("piece", 7, True),
-    "cabbage": ("piece", 30, True), "carrot": ("piece", 10, True),
+    "cabbage": ("piece", 30, True), "carrot": ("piece", 10, True), "oil": ("g", 0.15, True),
 }
 
 def ing(name, qty):
@@ -73,6 +73,7 @@ def _seed(c, today):
         ("religious_restriction", {"value": "no_non_veg"}),
         ("exclude_contains", {"value": "egg"}),
         ("approved_substitution", {"from": "capsicum", "to": ["cabbage", "carrot"]}),
+        ("approved_substitution", {"from": "ghee", "to": ["oil"]}),
     ]
     for t, v in rules:
         c.execute("INSERT INTO household_rules (household_id,rule_type,rule_value,source) VALUES (%s,%s,%s,'setup')",
@@ -85,13 +86,13 @@ def _seed(c, today):
         c.execute("""INSERT INTO meals (name,ingredients,instructions,nutrition,cost_estimate,tags,diet,contains)
                      VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
                   (name, J(ings), how, J({"protein": protein}), cost, J(tags), diet, J(contains)))
-    pantry = [("paneer", 250, "g", today + timedelta(days=1)), ("tomato", 4, "piece", today + timedelta(days=3)),
+        pantry = [("paneer", 250, "g", today + timedelta(days=7)), ("tomato", 4, "piece", today + timedelta(days=7)),
               ("rice", 2000, "g", today + timedelta(days=60)), ("atta", 1000, "g", today + timedelta(days=90)),
-              ("toor dal", 500, "g", today + timedelta(days=120)), ("ghee", 100, "g", today + timedelta(days=45))]
+              ("toor dal", 500, "g", today + timedelta(days=2))]
     for i, u, unit, exp in pantry:
         c.execute("INSERT INTO inventory (household_id,ingredient,quantity,unit,expiry_date) VALUES (%s,%s,%s,%s,%s)",
                   (HID, i, u, unit, exp))
-    for name, ago in [("Paneer Wrap", 1), ("Dal Tadka", 2)]:
+    for name, ago in [("Paneer Wrap", 1), ("Chole Rice", 2)]:
         c.execute("""INSERT INTO meal_history (household_id,meal_id,date,status)
                      SELECT %s, id, %s, 'cooked' FROM meals WHERE name=%s""",
                   (HID, today - timedelta(days=ago), name))

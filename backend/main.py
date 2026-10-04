@@ -1,15 +1,18 @@
 from contextlib import asynccontextmanager
+import html
 import os
 from datetime import date, timedelta
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 from db.database import q, one, J, jsonable
 from db.seed import HID
 from agent import rasoi, llm, state_machine as S
 from agent.rasoi import Run
 from tools import world, household as th, inventory as ti
-from integrations import gnani
+from integrations import gnani, notifier
 
 
 @asynccontextmanager
@@ -116,6 +119,56 @@ async def voice(household_id: str = Form(HID), language: str = Form("hi-IN"),
     known = [r["ingredient"] for r in q("SELECT ingredient FROM catalog")]
     interp = llm.interpret_voice(stt["transcript"], known)
     rule_id = th.add_voice_rule(household_id, interp)
+    if rule_id:
+        await run_in_threadpool(
+            notifier.notify, None, household_id, "Got it",
+            f"Understood: {interp['summary']}. I'll plan tomorrow's meal with that rule.",
+        )
     q("INSERT INTO voice_inputs (household_id,raw_response,transcript,interpretation) VALUES (%s,%s,%s,%s)",
       (household_id, J(stt["raw"]), stt["transcript"], J(interp)))
     return {"raw_gnani_response": stt["raw"], "transcript": stt["transcript"], "interpretation": interp, "rule_id": rule_id}
+
+
+@app.get("/messages")
+def messages(household_id: str = HID):
+    rows = q("""SELECT id, run_id, channel, direction, recipient, subject, body, status, created_at
+                FROM messages WHERE household_id=%s ORDER BY id DESC LIMIT 30""", (household_id,))
+    return jsonable(rows)
+
+
+def _action_page(content, status_code=200):
+    return HTMLResponse(
+        "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>"
+        "<body style='font-family:system-ui;max-width:420px;margin:15vh auto;padding:0 16px;text-align:center'>"
+        f"{content}</body>",
+        status_code=status_code,
+    )
+
+
+@app.get("/act", response_class=HTMLResponse)
+def act_page(run: str, a: str, exp: int, sig: str, r: str = ""):
+    if not notifier.verify_link(run, a, r, exp, sig):
+        return _action_page("<h3>This link is invalid or has expired.</h3>", 400)
+    return _action_page(
+        f"<h2>Confirm: {html.escape(a.replace('_', ' '))}</h2>"
+        "<form method='post' action='/act'>"
+        f"<input type='hidden' name='run' value='{html.escape(run, quote=True)}'>"
+        f"<input type='hidden' name='a' value='{html.escape(a, quote=True)}'>"
+        f"<input type='hidden' name='r' value='{html.escape(r, quote=True)}'>"
+        f"<input type='hidden' name='exp' value='{exp}'>"
+        f"<input type='hidden' name='sig' value='{html.escape(sig, quote=True)}'>"
+        "<button style='background:#14201c;color:#fff;border:0;padding:14px 28px;border-radius:10px;font-size:16px'>"
+        "Confirm</button></form>"
+    )
+
+
+@app.post("/act", response_class=HTMLResponse)
+def act_do(run: str = Form(...), a: str = Form(...), r: str = Form(""),
+           exp: int = Form(...), sig: str = Form(...)):
+    if not notifier.verify_link(run, a, r, exp, sig):
+        return _action_page("<h3>This link is invalid or has expired.</h3>", 400)
+    try:
+        rasoi.resolve(run, a, {"rule_id": int(r)} if r else {})
+    except ValueError as error:
+        return _action_page(f"<h3>Already handled.</h3><p>{html.escape(str(error))}</p>", 409)
+    return _action_page("<h2>Done.</h2><p>Rasoi is continuing.</p>")

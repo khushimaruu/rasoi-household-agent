@@ -1,5 +1,5 @@
-<<<<<<< HEAD
-# Rasoi (2-day MVP)
+
+# Rasoi 
 
 FastAPI + Neon Postgres backend, React/Vite/Tailwind dashboard.
 
@@ -164,8 +164,3 @@ This is a demo, not a production service.
 - **Pantry is manual.** There is no automatic inventory source yet.
 
 Before real customers: add authentication and multi-household support, remove the simulator endpoints, replace drop-and-reseed with migrations, move runs to a job queue with locking, use provider webhooks, add monitoring and tests, and review payment-authorisation and data-protection requirements.
-
-## License
-
-Add a license of your choice (for example MIT) before publishing.
->>>>>>> d205931baf11d05e44de9e7e1cba3fb1d984335c

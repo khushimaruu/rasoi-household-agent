@@ -9,6 +9,7 @@ from db.database import q, one, J, jsonable, transaction
 from agent import state_machine as S, llm
 from tools import household as th, inventory as ti, meals as tm, shopping as ts
 from tools import payment as tp, delivery as td, learning as tl, world
+from integrations import notifier
 
 STEP_DELAY = float(os.getenv("STEP_DELAY", "0.7"))
 MAX_REPLANS = 2
@@ -54,6 +55,7 @@ class Run:
     def need_human(self, state, message, options):
         self.ctx["human_request"] = {"kind": state, "message": message, "options": options}
         self.log("ask_human", message, {"options": [o["label"] for o in options]}, "Waiting for a human decision")
+        notifier.notify(self.run_id, self.household_id, "Rasoi needs your decision", message, options)
         return state
 
     @property
@@ -172,6 +174,13 @@ def h_create_order(r):
     r.log("create_order", f"Order #{ctx['order_id']} recorded (not paid yet)", None, "Pay")
     return S.PAYMENT
 
+PAY_WAIT_SECONDS = int(os.getenv("PAY_WAIT_SECONDS", "90"))
+
+
+def _pay_link(raw):
+    d = raw.get("data", raw) if isinstance(raw, dict) else {}
+    return next((d[k] for k in ("redirect_url", "payment_url", "checkout_url") if d.get(k)), None)
+
 
 def h_payment(r):
     """Handles both PAYMENT and PAYMENT_PENDING so a resumed run lands here safely."""
@@ -184,6 +193,7 @@ def h_payment(r):
         r.log("create_payment", f"Checkpointed. Sending ₹{total:.0f} payment (idempotency key {pay['idempotency_key']})")
         res = tp.create_payment(r.household_id, ctx["order_id"], total, pay["idempotency_key"])
         pay["external_id"] = res["external_id"]
+        pay["link"] = _pay_link(res["raw"])
         r.save()
         r.log("create_payment", f"Provider returned id {res['external_id']}. I won't trust this yet; verifying with the provider.",
               res["raw"], "Verify payment")
@@ -194,15 +204,20 @@ def h_payment(r):
               None, "Verify payment")
     return S.VERIFY_PAYMENT
 
-
 def h_verify_payment(r):
     ctx = r.ctx; pay = ctx["payment"]
-    res = None
-    for _ in range(3):
+    total = ctx["shopping_list"]["estimated_total"]
+    deadline = time.time() + PAY_WAIT_SECONDS
+    while True:
         res = tp.check_payment(r.household_id, ctx["order_id"], pay["external_id"])
-        if res["status"] in ("PROCESSED", "FAILED"):
+        if res["status"] in ("PROCESSED", "FAILED") or time.time() >= deadline:
             break
-        time.sleep(1)
+        if not pay.get("link_sent"):
+            pay["link_sent"] = True; r.save()
+            if pay.get("link"):
+                r.log("payment_link", "The provider is waiting for the customer to authorise the payment. Sent the payment link.", {"link": pay["link"]})
+                notifier.notify(r.run_id, r.household_id, "Please complete the payment", f"Pay ₹{total:.0f} here: {pay['link']}")
+        time.sleep(3)
     if res["status"] == "PROCESSED":
         r.verified("PAYMENT_VERIFIED")
         r.log("verify_payment", f"Provider confirms {pay['external_id']} as PROCESSED", res["raw"], "Create shipment")
@@ -211,10 +226,10 @@ def h_verify_payment(r):
         r.log("verify_payment", "Payment FAILED. Stopping and not retrying automatically.", res["raw"])
         return r.need_human(S.PAYMENT_FAILED, "The payment failed. I have not retried and no shipment was created.",
                             [{"action": "retry_payment", "label": "Retry payment (I approve)"}, CANCEL])
-    r.log("verify_payment", f"Provider status is {res['status']}; I can't verify the payment finished.", res["raw"])
-    return r.need_human(S.UNRESOLVED, "I can't verify whether the payment completed. I won't assume success or pay again.",
-                        [{"action": "recheck_payment", "label": "Check again"}, CANCEL])
-
+    n = pay["rechecks"] = pay.get("rechecks", 0) + 1
+    r.log("verify_payment", f"Provider status is still {res['status']} after {PAY_WAIT_SECONDS}s; I can't verify the payment finished.", res["raw"])
+    opts = ([{"action": "recheck_payment", "label": "Check again"}] if n < 3 else []) + [CANCEL]
+    return r.need_human(S.UNRESOLVED, "I can't confirm the payment completed. I won't assume it succeeded or pay again.", opts)
 
 def h_delivery(r):
     ctx = r.ctx
@@ -270,6 +285,14 @@ def h_learn(r):
     ctx = r.ctx
     tl.record_meal(r.household_id, ctx["meal"]["id"], r.plan_date)
     r.log("record_meal", f"Saved {ctx['meal']['name']} to meal history so I avoid repeating it soon", None, "Done")
+    shopping_list = ctx.get("shopping_list") or {"items": [], "estimated_total": 0}
+    bought = ", ".join(item["name"] for item in shopping_list["items"])
+    message = (f"Tomorrow's dinner is {ctx['meal']['name']}. "
+               + (f"{bought} arrived (₹{shopping_list['estimated_total']:.0f} paid). "
+                  if shopping_list["items"] else "")
+               + "Everything else is already in your pantry.")
+    r.log("notify_household", message, None, "Done")
+    notifier.notify(r.run_id, r.household_id, "Dinner is sorted", message)
     return S.COMPLETE
 
 
@@ -332,7 +355,7 @@ def start_run(hid):
 
 def resume_run(run_id):
     r = Run.load(run_id)
-    if not r or r.status not in ("CRASHED", "RUNNING"):
+    if not r or r.status not in ("CRASHED", "RUNNING", "ERROR"):
         raise ValueError("Run is not resumable")
     return start_background(run_id)
 

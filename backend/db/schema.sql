@@ -137,3 +137,17 @@ CREATE TABLE IF NOT EXISTS voice_inputs (
   interpretation JSONB,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS messages (
+  id BIGSERIAL PRIMARY KEY,
+  run_id TEXT,
+  household_id TEXT,
+  channel TEXT NOT NULL, -- dashboard | email
+  direction TEXT NOT NULL DEFAULT 'out',
+  recipient TEXT,
+  subject TEXT,
+  body TEXT NOT NULL,
+  status TEXT DEFAULT 'sent',
+  provider_response JSONB,
+  created_at TIMESTAMPTZ DEFAULT now()
+);

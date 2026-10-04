@@ -7,6 +7,7 @@ const post = (url, body) =>
 
 export const api = {
   household: (id = "demo-household") => fetch(`/api/household/${id}`).then(j),
+  messages: () => fetch("/api/messages").then(j),
   latest: () => fetch("/api/agent/runs/latest").then(j),
   simulate: (kind) => post(`/simulate/${kind}`),
   run: () => post("/agent/run"),

@@ -66,6 +66,6 @@ class DelhiveryClient:
 
 
 def get_client():
-    if common.use_mocks("DELHIVERY_TOKEN"):
+    if common.use_mocks("DELHIVERY_TOKEN", rail="DELHIVERY"):
         return MockDelhivery()
     return DelhiveryClient()

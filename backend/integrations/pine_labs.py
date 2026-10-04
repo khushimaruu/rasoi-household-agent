@@ -69,6 +69,6 @@ class PineLabsClient:
 
 
 def get_client():
-    if common.use_mocks("PINELABS_BASE_URL", "PINELABS_CLIENT_ID", "PINELABS_CLIENT_SECRET"):
+    if common.use_mocks("PINELABS_BASE_URL", "PINELABS_CLIENT_ID", "PINELABS_CLIENT_SECRET", rail="PINELABS"):
         return MockPineLabs()
     return PineLabsClient()

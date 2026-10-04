@@ -118,7 +118,10 @@ export default function App() {
           )}
         </section>
 
-        <Log run={run} live={live} />
+        <div className="space-y-6">
+          <Outbox />
+          <Log run={run} live={live} />
+        </div>
       </main>
     </div>
   );
@@ -127,6 +130,44 @@ export default function App() {
 const Card = ({ children, border = "border-line" }) => (
   <div className={`rounded-xl border ${border} bg-paper p-5`}>{children}</div>
 );
+
+function Outbox() {
+  const [rows, setRows] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.messages().then((messages) => alive && setRows(messages)).catch(() => {});
+    load();
+    const timer = setInterval(load, 1500);
+    return () => { alive = false; clearInterval(timer); };
+  }, []);
+
+  const displayBody = (body) => body
+    .split("\n")
+    .filter((line) => !/https?:\/\/\S+/i.test(line))
+    .join("\n")
+    .trim();
+
+  return (
+    <section>
+      <h2 className="mb-3 text-lg font-bold">Messages to people</h2>
+      {rows.length === 0 && <p className="text-steel">Nothing sent yet.</p>}
+      <ol className="space-y-2">
+        {rows.slice(0, 6).map((message) => (
+          <li key={message.id} className="rounded-lg border border-line bg-paper p-3 text-sm">
+            <div className="flex items-center justify-between gap-2 text-xs text-steel">
+              <span className={`rounded-full px-2 py-0.5 text-ink ${message.channel === "email" ? "bg-haldi/25" : "bg-tile"}`}>
+                {message.direction === "in" ? "← " : "→ "}{message.channel}
+              </span>
+              <span className="min-w-0 break-all text-right">{message.recipient} · {message.status} · {new Date(message.created_at).toLocaleTimeString()}</span>
+            </div>
+            <p className="mt-1 break-words font-semibold">{message.subject}</p>
+            <p className="whitespace-pre-line break-words">{displayBody(message.body)}</p>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
 
 function Household({ hh, refresh }) {
   const h = hh?.household;

@@ -45,7 +45,7 @@ def apply_scenario(kind, hid):
     elif kind == "out_of_stock_no_sub":
         q("UPDATE catalog SET in_stock=false WHERE ingredient IN ('capsicum','cabbage','carrot')")
     elif kind == "budget_exceeded":
-        q("UPDATE households SET budget_daily=50 WHERE id=%s", (hid,))
+        q("UPDATE households SET budget_daily=20 WHERE id=%s", (hid,))
     elif kind == "stale_inventory":
         q("UPDATE inventory SET updated_at = now() - interval '5 days' WHERE household_id=%s", (hid,))
     elif kind == "constraint_conflict":
