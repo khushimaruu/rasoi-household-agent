@@ -1,5 +1,7 @@
 
-# Rasoi 
+=======
+# Rasoi
+>>>>>>> edc483b2cb9e1eef42d1ad79be5e5ec3b5d18d29
 
 FastAPI + Neon Postgres backend, React/Vite/Tailwind dashboard.
 
